@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.camera.core.CameraSelector
@@ -49,9 +50,8 @@ import java.nio.ByteBuffer
 class MainActivity : ComponentActivity() {
 
     private lateinit var handLandmarker: HandLandmarker
-    private lateinit var previewView: PreviewView
 
-    @OptIn(ExperimentalMaterial3Api::class)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -72,33 +72,7 @@ class MainActivity : ComponentActivity() {
                         modifier = Modifier.fillMaxSize(),
                         verticalArrangement = Arrangement.Center
                     ) {
-                        val scaffoldState = rememberBottomSheetScaffoldState()
-                        val controller = remember {
-                            LifecycleCameraController(applicationContext).apply {
-                                setEnabledUseCases(
-                                    CameraController.IMAGE_CAPTURE or CameraController.VIDEO_CAPTURE
-                                )
-                            }
-                        }
-                        BottomSheetScaffold(
-                            scaffoldState = scaffoldState,
-                            sheetPeekHeight = 0.dp,
-                            sheetContent = {
-
-                            }
-                        ) { padding ->
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(padding)
-                            ) {
-                                CameraPreview(
-                                    controller = controller,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                        }
-                        //HandDetection()
+                        HandDetection()
                     }
                 }
             }
@@ -106,6 +80,7 @@ class MainActivity : ComponentActivity() {
     }
 
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun HandDetection() {
         val context = LocalContext.current
@@ -126,21 +101,41 @@ class MainActivity : ComponentActivity() {
         val options = optionsBuilder.build()
         handLandmarker = HandLandmarker.createFromOptions(context, options)
 
-        previewView = PreviewView(context)
 
-        AndroidView(
-            factory = { previewView },
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(50.dp)
-        )
+        // CAMERA X DISPLAY
+        val scaffoldState = rememberBottomSheetScaffoldState()
+        val controller = remember {
+            LifecycleCameraController(applicationContext).apply {
+                setEnabledUseCases(
+                    CameraController.IMAGE_ANALYSIS or CameraController.IMAGE_CAPTURE
+                )
+                // Configure the image analyser to get the frames
+                ImageAnalysis.Analyzer {
+                    processImageProxy(it)
+                }
+            }
+        }
+        BottomSheetScaffold(
+            scaffoldState = scaffoldState,
+            sheetPeekHeight = 0.dp,
+            sheetContent = {
 
-        Button(onClick = { /*TODO*/ }) {
-            Text(text = "Prueba")
+            }
+        ) { padding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                CameraPreview(
+                    controller = controller,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
 
-        // Iniciar la cámara
-        startCamera()
+        print("HOLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
+
     }
 
     private fun hasRequiredPermissions() : Boolean {
@@ -177,46 +172,14 @@ class MainActivity : ComponentActivity() {
         println("Error en HandLandmarker: ${error.message}")
     }
 
-    // Iniciar CameraX
-    private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-        cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-
-            // Configurar la vista previa de la cámara
-            val preview = Preview.Builder().build().also {
-                it.setSurfaceProvider(PreviewView(this).surfaceProvider)
-            }
-
-            // Configurar el análisis de imágenes
-            val imageAnalyzer = ImageAnalysis.Builder()
-                .setTargetRotation(windowManager.defaultDisplay.rotation)
-                .build()
-                .also {
-                    it.setAnalyzer(ContextCompat.getMainExecutor(this), ImageAnalysis.Analyzer { imageProxy ->
-                        processImageProxy(imageProxy)
-                    })
-                }
-
-            // Seleccionar la cámara frontal
-            val cameraSelector = CameraSelector.DEFAULT_FRONT_CAMERA
-
-            try {
-                // Unir la cámara al ciclo de vida de la actividad
-                cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalyzer)
-            } catch (exc: Exception) {
-                println("Error al iniciar la cámara: ${exc.message}")
-            }
-        }, ContextCompat.getMainExecutor(this))
-    }
-
     // Procesar el frame de la cámara
     private fun processImageProxy(imageProxy: ImageProxy) {
         val bitmap = imageProxyToBitmap(imageProxy)
         val mpImage = BitmapImageBuilder(bitmap).build()
 
         // Procesar la imagen con MediaPipe
-        handLandmarker.detectAsync(mpImage, System.currentTimeMillis())
+        val frameTime = SystemClock.uptimeMillis()
+        handLandmarker.detectAsync(mpImage, frameTime)
 
         imageProxy.close() // Asegurarse de cerrar el frame después de procesarlo
     }
@@ -228,4 +191,5 @@ class MainActivity : ComponentActivity() {
         buffer.get(bytes)
         return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
     }
+
 }
