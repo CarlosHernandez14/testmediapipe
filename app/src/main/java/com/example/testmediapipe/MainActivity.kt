@@ -4,6 +4,9 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageFormat
+import android.graphics.Rect
+import android.graphics.YuvImage
 import android.os.Bundle
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
@@ -45,7 +48,9 @@ import com.google.mediapipe.tasks.core.BaseOptions
 import com.google.mediapipe.tasks.vision.core.RunningMode
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarker
 import com.google.mediapipe.tasks.vision.handlandmarker.HandLandmarkerResult
+import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
+import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
 
@@ -101,6 +106,7 @@ class MainActivity : ComponentActivity() {
         val options = optionsBuilder.build()
         handLandmarker = HandLandmarker.createFromOptions(context, options)
 
+        val executor = remember { Executors.newSingleThreadExecutor() }
 
         // CAMERA X DISPLAY
         val scaffoldState = rememberBottomSheetScaffoldState()
@@ -109,11 +115,12 @@ class MainActivity : ComponentActivity() {
                 setEnabledUseCases(
                     CameraController.IMAGE_ANALYSIS or CameraController.IMAGE_CAPTURE
                 )
-                // Configure the image analyser to get the frames
-                ImageAnalysis.Analyzer {
-                    processImageProxy(it)
-                }
+
+
             }
+        }
+        controller.setImageAnalysisAnalyzer(executor) {
+            processImageProxy(it)
         }
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
@@ -133,8 +140,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
-
-        print("HOLAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")
 
     }
 
@@ -158,10 +163,15 @@ class MainActivity : ComponentActivity() {
 
     // Método para manejar los resultados de la detección de manos
     private fun returnLivestreamResult(result: HandLandmarkerResult, image: MPImage) {
+        System.out.println("HOLAAAAAAAAAAAAAAAAAAAAAAAAAAAAA FROM THE LIVE MARKER RESULT")
         // Aquí puedes manejar el resultado de la detección
         // Ejemplo: imprimir las posiciones de las manos detectadas
         result.landmarks()?.forEachIndexed { index, landmarks ->
-            println("Mano ${index + 1}: ${landmarks}")
+            println("Mano ${index + 1}:")
+            landmarks.forEachIndexed { indexLand, landmark ->
+                println("Landmark $indexLand: $landmark")
+            }
+
         }
     }
 
@@ -174,22 +184,42 @@ class MainActivity : ComponentActivity() {
 
     // Procesar el frame de la cámara
     private fun processImageProxy(imageProxy: ImageProxy) {
-        val bitmap = imageProxyToBitmap(imageProxy)
+        println("Procesando ImageProxy")
+        if (imageProxy.format != ImageFormat.YUV_420_888) {
+            imageProxy.close()
+            return
+        }
+
+        val bitmap = yuvToRgb(imageProxy)
         val mpImage = BitmapImageBuilder(bitmap).build()
 
-        // Procesar la imagen con MediaPipe
         val frameTime = SystemClock.uptimeMillis()
         handLandmarker.detectAsync(mpImage, frameTime)
 
-        imageProxy.close() // Asegurarse de cerrar el frame después de procesarlo
+        imageProxy.close()
     }
 
-    // Convertir ImageProxy a Bitmap
-    private fun imageProxyToBitmap(imageProxy: ImageProxy): Bitmap {
-        val buffer: ByteBuffer = imageProxy.planes[0].buffer
-        val bytes = ByteArray(buffer.remaining())
-        buffer.get(bytes)
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    private fun yuvToRgb(image: ImageProxy): Bitmap {
+        val yBuffer = image.planes[0].buffer // Y
+        val uBuffer = image.planes[1].buffer // U
+        val vBuffer = image.planes[2].buffer // V
+
+        val ySize = yBuffer.remaining()
+        val uSize = uBuffer.remaining()
+        val vSize = vBuffer.remaining()
+
+        val nv21 = ByteArray(ySize + uSize + vSize)
+
+        // U and V are swapped
+        yBuffer.get(nv21, 0, ySize)
+        vBuffer.get(nv21, ySize, vSize)
+        uBuffer.get(nv21, ySize + vSize, uSize)
+
+        val yuvImage = YuvImage(nv21, ImageFormat.NV21, image.width, image.height, null)
+        val out = ByteArrayOutputStream()
+        yuvImage.compressToJpeg(Rect(0, 0, image.width, image.height), 100, out)
+        val imageBytes = out.toByteArray()
+        return BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
     }
 
 }
