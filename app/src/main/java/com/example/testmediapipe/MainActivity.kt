@@ -55,7 +55,7 @@ import java.util.concurrent.Executors
 class MainActivity : ComponentActivity() {
 
     private lateinit var handLandmarker: HandLandmarker
-
+    private lateinit var overlay: LandmarkOverlay
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -108,6 +108,9 @@ class MainActivity : ComponentActivity() {
 
         val executor = remember { Executors.newSingleThreadExecutor() }
 
+        // Overlay for landmarks
+        this.overlay = remember { LandmarkOverlay(context, null) }
+
         // CAMERA X DISPLAY
         val scaffoldState = rememberBottomSheetScaffoldState()
         val controller = remember {
@@ -138,6 +141,10 @@ class MainActivity : ComponentActivity() {
                     controller = controller,
                     modifier = Modifier.fillMaxSize()
                 )
+                AndroidView(
+                    factory = { overlay },
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
 
@@ -164,6 +171,14 @@ class MainActivity : ComponentActivity() {
     // Método para manejar los resultados de la detección de manos
     private fun returnLivestreamResult(result: HandLandmarkerResult, image: MPImage) {
         System.out.println("HOLAAAAAAAAAAAAAAAAAAAAAAAAAAAAA FROM THE LIVE MARKER RESULT")
+
+        // Actualizar el LandmarkOverlay con los nuevos resultados de landmarks
+        println("IMAGE HEIGHT: ${image.height}")
+        println("IMAGE WIDTH: ${image.width}")
+        runOnUiThread {
+            this.overlay.setResults(result, image.height, image.width, RunningMode.LIVE_STREAM)
+        }
+
         // Aquí puedes manejar el resultado de la detección
         // Ejemplo: imprimir las posiciones de las manos detectadas
         result.landmarks()?.forEachIndexed { index, landmarks ->
